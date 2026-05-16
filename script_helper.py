@@ -5,6 +5,122 @@ from dotenv import load_dotenv
 import json
 import re
 
+import json
+import hashlib
+import requests
+import shutil
+
+RAW_URL = "https://raw.githubusercontent.com/maxuser0/minescript/main/docs/README.md"
+
+OUTPUT_DIR = "md_snippets"
+HASH_FILE = ".readme_hash"
+
+
+def get_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def load_old_hash():
+    if os.path.exists(HASH_FILE):
+        with open(HASH_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return None
+
+
+def save_hash(hash_value):
+    with open(HASH_FILE, "w", encoding="utf-8") as f:
+        f.write(hash_value)
+
+
+def download_readme():
+    response = requests.get(RAW_URL)
+    response.raise_for_status()
+    return response.text
+
+
+def clean_header_name(header):
+    """
+    Converts markdown-escaped text like:
+    \\_\\_init()\\_\\_
+    into:
+    __init()__
+    """
+
+    # Remove markdown escaping backslashes
+    header = header.replace("\\", "")
+
+    # Remove illegal filename characters
+    header = re.sub(r'[<>:"/\\\\|?*]', "_", header)
+
+    return header.strip()
+
+
+def parse_sections(markdown):
+    pattern = re.compile(r"^(#{2,4})\s+(.+)$", re.MULTILINE)
+
+    matches = list(pattern.finditer(markdown))
+    sections = []
+
+    for i, match in enumerate(matches):
+        start = match.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(markdown)
+
+        content = markdown[start:end].strip()
+
+        title = clean_header_name(match.group(2))
+
+        sections.append({
+            "title": title,
+            "content": content
+        })
+
+    return sections
+
+
+def save_sections(sections):
+    # Clear old snippets
+    if os.path.exists(OUTPUT_DIR):
+        shutil.rmtree(OUTPUT_DIR)
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    for section in sections:
+        filename = f"{section['title']}.md"
+
+        path = os.path.join(OUTPUT_DIR, filename)
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(section["content"])
+
+        print(f"Saved: {filename}")
+
+
+def update_docs():
+    print("Checking for updates...")
+
+    markdown = download_readme()
+
+    new_hash = get_hash(markdown)
+    old_hash = load_old_hash()
+
+    if new_hash == old_hash:
+        print("No changes detected.")
+        return
+
+    print("Changes detected. Rebuilding snippets...")
+
+    sections = parse_sections(markdown)
+
+    save_sections(sections)
+
+    save_hash(new_hash)
+
+    print(f"Done. Parsed {len(sections)} sections.")
+
+
+if __name__ == "__main__":
+    update_docs()
+
 with open("error_conversions.json","r", encoding="utf-8") as f:
     error_conversions = json.load(f)
     print(error_conversions)
@@ -62,7 +178,10 @@ topics = []
 for topic in files:
     topics.append(topic.removesuffix(".md"))
 
-
+files = os.listdir("md_snippets")
+wikis = []
+for wiki in files:
+    wikis.append(wiki.removesuffix(".md"))
 # Load environment variables
 load_dotenv()
 
@@ -120,6 +239,8 @@ async def refresh(ctx):
     
     with open("error_conversions.json","r") as f:
         error_conversions = json.load(f)
+
+    
     await ctx.message.add_reaction("🔄")
     
 @bot.command(name="format")
@@ -167,6 +288,30 @@ def find_fix(lines: str):
                     return f.read()
     
     return None
+
+@bot.command(name="w")
+async def getwiki(ctx, page=None):
+    if not page is None:
+        
+        req = page
+        if req in wikis:
+            with open("md_snippets/"+req+".md","r") as f:
+                await ctx.send(f.read())
+        else:
+            await ctx.message.add_reaction("❌")
+    
+    else:
+        resp = """
+`+w wikipage` | Get information on a specific wiki page
+
+These are indicated by:
+
+`##`, `###`, and `####` on the minescript wiki!
+"""
+    
+        
+        await ctx.send(resp)
+    
 
 @bot.command(name="quickfix")
 async def quickfix(ctx):

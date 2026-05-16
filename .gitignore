@@ -3,3 +3,6 @@
 .env.*
 
 __pycache__/
+
+md_snippets/
+.readme_hash
